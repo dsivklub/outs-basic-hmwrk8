@@ -4,6 +4,7 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <chrono>
 
 #include "CRC32.hpp"
 #include "IO.hpp"
@@ -17,13 +18,13 @@ void replaceLastFourBytes(std::vector<char> &data, uint32_t value) {
 }
 
 void hackEngine(std::vector<char> result, size_t idxStart, size_t idxEnd,
-  uint32_t originalCrc32, std::vector<char>& res_ret)
+  uint32_t originalCrc32, std::vector<char>& res_ret, uint32_t prev = 0xFFFFFFFF)
 {
   for (size_t i = idxStart; i < idxEnd; i++) {
     // Заменяем последние четыре байта на значение i
     replaceLastFourBytes(result, uint32_t(i));
     // Вычисляем CRC32 текущего вектора result
-    auto currentCrc32 = crc32(result.data(), result.size());
+    auto currentCrc32 = crc32(result.data(), result.size(), prev);
 
     if (currentCrc32 == originalCrc32) {
       std::cout << "Success\n";
@@ -37,7 +38,7 @@ void hackEngine(std::vector<char> result, size_t idxStart, size_t idxEnd,
     if (FIND_VALUE) return;
     // Отображаем прогресс
     if (i % 1000 == 0) {
-      std::cout << "progress thread: " << std::this_thread::get_id()
+      std::cout << "progress thread: " << std::this_thread::get_id() << " "
                 << (static_cast<double>(i - idxStart) / static_cast<double>(idxEnd - idxStart))
                 << std::endl;
     }
@@ -61,6 +62,7 @@ std::vector<char> hack(const std::vector<char> &original,
 
   std::vector<char> result(original.size() + injection.size() + 4);
   auto it = std::copy(original.begin(), original.end(), result.begin());
+  const uint32_t prevCrc = crc32(result.data(), result.size() - 4);
   std::copy(injection.begin(), injection.end(), it);
 
   /*
@@ -70,18 +72,24 @@ std::vector<char> hack(const std::vector<char> &original,
   const size_t maxVal = std::numeric_limits<uint32_t>::max();
   std::vector<char> ret_res{};
 
+  auto start = std::chrono::steady_clock::now();
   std::vector<std::thread> v_thread{};
   unsigned int num_thread = std::thread::hardware_concurrency();
   for (size_t i = 0; i < num_thread; i++) {
     v_thread.emplace_back(
       hackEngine, result, static_cast<size_t>(i * maxVal / num_thread),
-        static_cast<size_t>((i+1) * maxVal / num_thread), originalCrc32, std::ref(ret_res)
+        static_cast<size_t>((i+1) * maxVal / num_thread), originalCrc32, std::ref(ret_res),
+        prevCrc
     );
   }
 
   for (size_t i = 0; i < v_thread.size(); i++) {
     v_thread[i].join();
   }
+
+  auto end = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+  std::cout << "Time hack: " << elapsed.count() << " seconds" << std::endl;
 
   if (ret_res.size() == 0) throw std::logic_error("Can't hack");
 
