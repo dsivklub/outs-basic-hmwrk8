@@ -2,13 +2,46 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+#include <thread>
+#include <mutex>
 
 #include "CRC32.hpp"
 #include "IO.hpp"
 
+bool FIND_VALUE = false;
+std::mutex m;
+
 /// @brief Переписывает последние 4 байта значением value
 void replaceLastFourBytes(std::vector<char> &data, uint32_t value) {
   std::copy_n(reinterpret_cast<const char *>(&value), 4, data.end() - 4);
+}
+
+void hackEngine(std::vector<char> result, size_t idxStart, size_t idxEnd,
+  uint32_t originalCrc32, std::vector<char>& res_ret)
+{
+  for (size_t i = idxStart; i < idxEnd; i++) {
+    // Заменяем последние четыре байта на значение i
+    replaceLastFourBytes(result, uint32_t(i));
+    // Вычисляем CRC32 текущего вектора result
+    auto currentCrc32 = crc32(result.data(), result.size());
+
+    if (currentCrc32 == originalCrc32) {
+      std::cout << "Success\n";
+      // std::copy(result.begin(), result.end(), res_ret.begin());
+      res_ret = result;
+      m.lock();
+      FIND_VALUE = true;
+      m.unlock();
+      return;
+    }
+    if (FIND_VALUE) return;
+    // Отображаем прогресс
+    if (i % 1000 == 0) {
+      std::cout << "progress thread: " << std::this_thread::get_id()
+                << (static_cast<double>(i - idxStart) / static_cast<double>(idxEnd - idxStart))
+                << std::endl;
+    }
+  }
 }
 
 /**
@@ -35,24 +68,24 @@ std::vector<char> hack(const std::vector<char> &original,
    * В качестве доп. задания устраните избыточные вычисления
    */
   const size_t maxVal = std::numeric_limits<uint32_t>::max();
-  for (size_t i = 0; i < maxVal; ++i) {
-    // Заменяем последние четыре байта на значение i
-    replaceLastFourBytes(result, uint32_t(i));
-    // Вычисляем CRC32 текущего вектора result
-    auto currentCrc32 = crc32(result.data(), result.size());
+  std::vector<char> ret_res{};
 
-    if (currentCrc32 == originalCrc32) {
-      std::cout << "Success\n";
-      return result;
-    }
-    // Отображаем прогресс
-    if (i % 1000 == 0) {
-      std::cout << "progress: "
-                << static_cast<double>(i) / static_cast<double>(maxVal)
-                << std::endl;
-    }
+  std::vector<std::thread> v_thread{};
+  unsigned int num_thread = std::thread::hardware_concurrency();
+  for (size_t i = 0; i < num_thread; i++) {
+    v_thread.emplace_back(
+      hackEngine, result, static_cast<size_t>(i * maxVal / num_thread),
+        static_cast<size_t>((i+1) * maxVal / num_thread), originalCrc32, std::ref(ret_res)
+    );
   }
-  throw std::logic_error("Can't hack");
+
+  for (size_t i = 0; i < v_thread.size(); i++) {
+    v_thread[i].join();
+  }
+
+  if (ret_res.size() == 0) throw std::logic_error("Can't hack");
+
+  return ret_res;
 }
 
 int main(int argc, char **argv) {
