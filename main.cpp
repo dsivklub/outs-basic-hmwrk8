@@ -27,15 +27,14 @@ struct ThreadManager {
 /**
  * @brief params for one thread task
  */
-struct TaskParams
+class TaskParams
 {
+public:
   size_t m_idx_start{ 0 };
   size_t m_idx_end{ 0 };
-  // std::vector<char> m_data{}; // нужно хранить tail_data, чтобы не тратить время на копирование всего
   uint32_t m_originalCrc32;
   std::reference_wrapper<ThreadManager> m_manager;
   std::reference_wrapper<std::vector<char>> m_ret_res;
-  // std::vector<char> m_ret_res{' '};
   uint32_t m_prev;
   bool m_print_progress{ false };
 
@@ -92,9 +91,6 @@ std::vector<TaskParams> split_task_to_threads(uint32_t prev, uint32_t originalCr
   return v_params;
 }
 
-// void hackEngine(std::vector<char> result, size_t idxStart, size_t idxEnd,
-//   uint32_t originalCrc32, std::vector<char>& res_ret, ThreadManager& manager,
-//   uint32_t prev = 0xFFFFFFFF, bool isPrintOut = false)
 void hackEngine(TaskParams& params)
 {
   int lastPct = -1;
@@ -103,13 +99,8 @@ void hackEngine(TaskParams& params)
 
   for (size_t i = params.m_idx_start; i < params.m_idx_end; i++) {
     // Заменяем последние четыре байта на значение i
-    // replaceLastFourBytes(result, uint32_t(i));
     replaceLastFourBytes(data, uint32_t(i));
     // Вычисляем CRC32 текущего вектора result (только для последних 4-ех значений)
-    // std::vector<char> tail_data {result.end() - 4, result.end()};
-
-    // auto currentCrc32 = crc32(result.data(), result.size(), prev);
-    // auto currentCrc32 = crc32(tail_data.data(), tail_data.size(), params.m_prev);
     auto currentCrc32 = crc32(data.data(), data.size(), params.m_prev);
 
     if (currentCrc32 == params.m_originalCrc32) {
@@ -211,13 +202,9 @@ void hackEngine(TaskParams& params)
 std::vector<char> hack(const std::vector<char> &original,
                        const std::string &injection) {
   const uint32_t originalCrc32 = crc32(original.data(), original.size());
-
-  // std::vector<char> result(original.size() + injection.size() + 4);
-  // std::vector<char> result(original.size() + injection.size() + 4);
   std::vector<char> result(original.size() + injection.size());
   auto it = std::copy(original.begin(), original.end(), result.begin());
   std::copy(injection.begin(), injection.end(), it);
-  // const uint32_t prevCrc = crc32(result.data(), result.size() - 4); // вычисление crc32 без последних 4 символов
   const uint32_t prevCrc = crc32(result.data(), result.size());
 
   const size_t max_val = std::numeric_limits<uint32_t>::max();
@@ -225,7 +212,6 @@ std::vector<char> hack(const std::vector<char> &original,
   std::vector<std::thread> v_thread{};
   unsigned int num_thread = std::thread::hardware_concurrency();
   // unsigned int num_thread = getDynamicNumThreads();
-  // unsigned int num_thread = 1;
   auto start = std::chrono::steady_clock::now();
 
   ThreadManager manager;
@@ -239,16 +225,8 @@ std::vector<char> hack(const std::vector<char> &original,
     );
   }
 
-  // for (size_t i = 0; i < num_thread; i++) {
-  //   v_thread.emplace_back(
-  //     hackEngine, result, static_cast<size_t>(i * maxVal / num_thread),
-  //       static_cast<size_t>((i+1) * maxVal / num_thread), originalCrc32, std::ref(ret_res),
-  //       std::ref(manager), prevCrc, true
-  //   );
-  // }
-
-  for (size_t i = 0; i < v_thread.size(); i++) {
-    v_thread[i].join();
+  for (auto& thread : v_thread) {
+    thread.join();
   }
 
   auto end = std::chrono::steady_clock::now();
